@@ -15,6 +15,7 @@
  * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -26,37 +27,21 @@
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-    if (size <= 1 || data[size - 1] != '\0')
+    if (size == 0)
         return -1;
 
-    // Exlude data with null bytes inside
-    if (strlen(data) != size - 1)
-        return -1;
+    char filename[15 + 10 + 1];
+    sprintf(filename, "/tmp/libfuzzer.%d", getpid());
 
-#ifdef MPV_PROTO
-    if (!str_startswith(data, size - 1, MPV_STRINGIFY(MPV_PROTO) "://", sizeof(MPV_STRINGIFY(MPV_PROTO) "://") - 1))
-        return -1;
-#endif
+    FILE *fp = fopen(filename, "wb");
+    if (!fp)
+        exit(1);
 
-#if !defined(MPV_PROTO) || defined(MPV_PROTO_FILE)
-    const uint8_t *data_check = data;
-    size_t size_check = size;
-    size_t prefix_size = sizeof("file://") - 1;
-    if (str_startswith(data, size - 1, "file://", prefix_size)) {
-        data_check += prefix_size;
-        size_check -= prefix_size;
-    }
-    // Exclude some common paths that are not useful for testing.
-    // Exclude -
-    if (size_check == 2 && !strncmp(data_check, "-", 1))
-        return -1;
-    // Exclude relative paths
-    if (str_startswith(data_check, size_check - 1, ".", 1))
-        return -1;
-    // Exclude absolute paths
-    if (str_startswith(data_check, size_check - 1, "/", 1))
-        return -1;
-#endif
+    if (fwrite(data, size, 1, fp) != 1)
+        exit(1);
+
+    if (fclose(fp))
+        exit(1);
 
     mpv_handle *ctx = mpv_create();
     if (!ctx)
@@ -72,14 +57,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
     check_error(mpv_initialize(ctx));
 
-    const char *cmd[] = {"loadfile", data, NULL};
+    const char *cmd[] = {"load-" MPV_LOAD, filename, NULL};
     check_error(mpv_command(ctx, cmd));
-
-    while (1) {
-        mpv_event *event = mpv_wait_event(ctx, 10000);
-        if (event->event_id == MPV_EVENT_IDLE)
-            break;
-    }
 
     mpv_terminate_destroy(ctx);
 

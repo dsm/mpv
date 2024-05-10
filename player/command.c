@@ -18,7 +18,6 @@
 #include <float.h>
 #include <stdlib.h>
 #include <inttypes.h>
-#include <unistd.h>
 #include <string.h>
 #include <stdbool.h>
 #include <assert.h>
@@ -68,6 +67,7 @@
 #include "options/path.h"
 #include "screenshot.h"
 #include "misc/dispatch.h"
+#include "misc/language.h"
 #include "misc/node.h"
 #include "misc/thread_pool.h"
 #include "misc/thread_tools.h"
@@ -2079,6 +2079,10 @@ static int get_track_entry(int item, int action, void *arg, void *ctx)
                         .unavailable = !has_rg},
         {"replaygain-album-gain", SUB_PROP_FLOAT(rg.album_gain),
                         .unavailable = !has_rg},
+        {"dolby-vision-profile", SUB_PROP_INT(p.dv_profile),
+                        .unavailable = !p.dovi},
+        {"dolby-vision-level", SUB_PROP_INT(p.dv_level),
+                        .unavailable = !p.dovi},
         {0}
     };
 
@@ -4101,7 +4105,7 @@ static const struct m_property mp_properties_base[] = {
     // Subs
     {"sid", property_switch_track, .priv = (void *)(const int[]){0, STREAM_SUB}},
     {"secondary-sid", property_switch_track,
-     .priv = (void *)(const int[]){1, STREAM_SUB}},
+        .priv = (void *)(const int[]){1, STREAM_SUB}},
     {"sub-delay", mp_property_sub_delay, .priv = (void *)&(const int){0}},
     {"secondary-sub-delay", mp_property_sub_delay,
         .priv = (void *)&(const int){1}},
@@ -4733,9 +4737,9 @@ static void cmd_overlay_add(void *pcmd)
     int dw = cmd->args[9].v.i, dh = cmd->args[10].v.i;
 
     if (dw <= 0)
-      dw = w;
+        dw = w;
     if (dh <= 0)
-      dh = h;
+        dh = h;
     if (strcmp(fmt, "bgra") != 0) {
         MP_ERR(mpctx, "overlay-add: unsupported OSD format '%s'\n", fmt);
         goto error;
@@ -5644,6 +5648,19 @@ static void cmd_expand_path(void *p)
     };
 }
 
+static void cmd_normalize_path(void *p)
+{
+    struct mp_cmd_ctx *cmd = p;
+    void *ctx = talloc_new(NULL);
+
+    cmd->result = (mpv_node){
+        .format = MPV_FORMAT_STRING,
+        .u.string = talloc_strdup(NULL, mp_normalize_path(ctx, cmd->args[0].v.s)),
+    };
+
+    talloc_free(ctx);
+}
+
 static void cmd_escape_ass(void *p)
 {
     struct mp_cmd_ctx *cmd = p;
@@ -5993,7 +6010,7 @@ static void cmd_track_reload(void *p)
     struct track *nt = mpctx->tracks[nt_num];
 
     if (!nt->lang)
-        nt->lang = mp_guess_lang_from_filename(nt, nt->external_filename);
+        nt->lang = bstrto0(nt, mp_guess_lang_from_filename(bstr0(nt->external_filename), NULL));
 
     mp_switch_track(mpctx, nt->type, nt, 0);
     print_track_list(mpctx, "Reloaded:");
@@ -6764,6 +6781,7 @@ const struct mp_cmd_def mp_cmds[] = {
         .is_noisy = true },
     { "expand-path", cmd_expand_path, { {"text", OPT_STRING(v.s)} },
         .is_noisy = true },
+    { "normalize-path", cmd_normalize_path, { {"filename", OPT_STRING(v.s)} }},
     { "escape-ass", cmd_escape_ass, { {"text", OPT_STRING(v.s)} },
         .is_noisy = true },
     { "show-progress", cmd_show_progress, .allow_auto_repeat = true,
